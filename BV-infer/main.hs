@@ -22,8 +22,6 @@ import Numeric
 import Control.Concurrent.Async
 import System.Random
 
-import Debug.Trace
-
 data Problem =
     Problem { problemSize :: Int
             , problemUnaryOps :: [UnaryOp]
@@ -109,15 +107,13 @@ postMyProblems = do
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
-      Just resJsons -> do
-                       trace (show resJsons) $ return ()
-                       return [ resJson
-                            | resJson <- resJsons
-                            , let solved = resJson ..: "solved"
-                            , Just True /= solved
-                            , let timeLeft = resJson ..: "timeLeft"
-                            , Just (0 :: Double) < timeLeft || Nothing == timeLeft
-                            ]
+      Just resJsons -> return [ resJson
+                              | resJson <- resJsons
+                              , let solved = resJson ..: "solved"
+                              , Just True /= solved
+                              , let timeLeft = resJson ..: "timeLeft"
+                              , Just (0 :: Double) < timeLeft || Nothing == timeLeft
+                              ]
       Nothing -> error "error: invalid json"
 
 postEval :: String -> [Word64] -> IO Value
