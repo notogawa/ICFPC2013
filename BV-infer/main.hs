@@ -181,19 +181,28 @@ main = do
       os1 = map read os1'
   let is = is0 ++ is1
       os = os0 ++ os1
-  result <- if elem "fold" ops || elem "tfold" ops
-              then do
-                (_, answer) <- mapM async (replicate 4 $ findProgramWithFold is os) >>= waitAny
-                print answer
-                postGuess pid answer
-              else do
-                (_, answer) <- mapM async (replicate 4 $ findProgramWithoutFold is os) >>= waitAny
-                print answer
-                postGuess pid answer
+  tryInferProgram pid ops is os
+
+tryInferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO ()
+tryInferProgram pid ops is os = do
+  result <- inferProgram pid ops is os
   print result
   case (result ..: "status" :: Maybe String) of
     Just "win" -> exitWith ExitSuccess
+    Just "mismatch" -> do
+      let Just [i,o,_] = result ..: "values"
+      tryInferProgram pid ops (read i:is) (read o:os)
     _          -> exitWith (ExitFailure 1)
+
+inferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO Value
+inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
+  (_, answer) <- mapM async (replicate 4 $ findProgramWithFold is os) >>= waitAny
+  print answer
+  postGuess pid answer
+inferProgram pid ops is os = do
+  (_, answer) <- mapM async (replicate 4 $ findProgramWithoutFold is os) >>= waitAny
+  print answer
+  postGuess pid answer
 
 verify :: AtMostOneOccurrenceOfFold fold => Program fold -> [Word64] -> [Word64] -> Bool
 verify prog is os = and [ p i == o | (i, o) <- zip is os]
