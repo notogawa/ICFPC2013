@@ -91,7 +91,7 @@ postTrain size ops = do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
                              , requestBody = RequestBodyLBS $ encode reqJson
-                             , responseTimeout = Just 10000000
+                             , responseTimeout = Just 20000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
@@ -104,7 +104,7 @@ postMyProblems = do
   withManager $ \manager -> do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
-                             , responseTimeout = Just 10000000
+                             , responseTimeout = Just 20000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
@@ -127,7 +127,7 @@ postEval pid args = do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
                              , requestBody = RequestBodyLBS $ encode reqJson
-                             , responseTimeout = Just 10000000
+                             , responseTimeout = Just 20000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
@@ -144,7 +144,7 @@ postGuess pid program = do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
                              , requestBody = RequestBodyLBS $ encode reqJson
-                             , responseTimeout = Just 10000000
+                             , responseTimeout = Just 20000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
