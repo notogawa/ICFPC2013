@@ -200,11 +200,11 @@ tryInferProgram pid ops is os = do
 
 inferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO Value
 inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
-  (_, answer) <- mapM async (replicate 4 $ findProgramWithFold is os) >>= waitAny
+  (_, answer) <- mapM async (replicate 12 $ findProgramWithFold is os) >>= waitAny
   print answer
   postGuess pid answer
 inferProgram pid ops is os = do
-  (_, answer) <- mapM async (replicate 4 $ findProgramWithoutFold is os) >>= waitAny
+  (_, answer) <- mapM async (replicate 12 $ findProgramWithoutFold is os) >>= waitAny
   print answer
   postGuess pid answer
 
