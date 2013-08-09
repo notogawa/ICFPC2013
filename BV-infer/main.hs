@@ -21,6 +21,7 @@ import Network.HTTP.Conduit
 import Numeric
 import Control.Concurrent.Async
 import System.Random
+import System.Exit
 
 data Problem =
     Problem { problemSize :: Int
@@ -180,16 +181,19 @@ main = do
       os1 = map read os1'
   let is = is0 ++ is1
       os = os0 ++ os1
-  if elem "fold" ops || elem "tfold" ops
-     then do
-       (_, answer) <- mapM async (replicate 4 $ findProgramWithFold is os) >>= waitAny
-       print answer
-       postGuess pid answer >>= print
-     else do
-       (_, answer) <- mapM async (replicate 4 $ findProgramWithoutFold is os) >>= waitAny
-       print answer
-       postGuess pid answer >>= print
-  return ()
+  result <- if elem "fold" ops || elem "tfold" ops
+              then do
+                (_, answer) <- mapM async (replicate 4 $ findProgramWithFold is os) >>= waitAny
+                print answer
+                postGuess pid answer
+              else do
+                (_, answer) <- mapM async (replicate 4 $ findProgramWithoutFold is os) >>= waitAny
+                print answer
+                postGuess pid answer
+  print result
+  case (result ..: "status" :: Maybe String) of
+    Just "win" -> exitWith ExitSuccess
+    _          -> exitWith (ExitFailure 1)
 
 verify :: AtMostOneOccurrenceOfFold fold => Program fold -> [Word64] -> [Word64] -> Bool
 verify prog is os = and [ p i == o | (i, o) <- zip is os]
