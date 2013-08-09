@@ -303,11 +303,14 @@ genExpSizeWithTFold n = oneof candidates
         return $ ExpFold (ExpId (Id 0)) ExpZero (Id 0) (Id 1) e2
 
 instance Arbitrary (Exp OutFold WithFold) where
-    arbitrary = sized $ gen . max (problemSize unsafeGetProblem - 1)
+    arbitrary = gen (size - 1)
         where
+          size = problemSize unsafeGetProblem
           gen = if problemHasTFold unsafeGetProblem
                    then genExpSizeWithTFold
                    else genExpSizeWithFold
 
 instance Arbitrary (Exp OutFold WithoutFold) where
-    arbitrary = sized $ genExpSizeOutFold . max (problemSize unsafeGetProblem - 1)
+    arbitrary = genExpSizeOutFold (size - 1)
+        where
+          size = problemSize unsafeGetProblem
