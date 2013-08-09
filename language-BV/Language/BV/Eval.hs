@@ -28,7 +28,10 @@ evalExp env (ExpFold e0 e1 (Id n0) (Id n1) e2) = do
   x <- evalExp env e0
   z <- evalExp env e1
   let xs = [ shiftR x (8 * n) .&. 0xFF | n <- [0..7] ]
-  foldM (\a b -> modifySTRef' env (insert n0 b . insert n1 a) >> evalExp env e2) z xs
+  save <- readSTRef env
+  n <- foldM (\a b -> modifySTRef' env (insert n0 b . insert n1 a) >> evalExp env e2) z xs
+  writeSTRef env save
+  return n
 evalExp env (ExpUOp op e0) = evalUOp op <$> evalExp env e0
 evalExp env (ExpBOp op e0 e1) = evalBOp op <$> evalExp env e0 <*> evalExp env e1
 

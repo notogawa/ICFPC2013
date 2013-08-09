@@ -19,6 +19,7 @@ import Data.Conduit ( ($$+-) )
 import Data.Conduit.Binary (sinkLbs)
 import Network.HTTP.Conduit
 import Numeric
+import Control.Concurrent ( threadDelay )
 import Control.Concurrent.Async
 import System.Random
 import System.Exit
@@ -110,6 +111,8 @@ postMyProblems = do
     case decode' lbs of
       Just resJsons -> return [ resJson
                               | resJson <- resJsons
+                              , let Just operators = resJson ..: "operators"
+                              , ("fold" :: String) `notElem` operators -- とりあえず無視
                               , let solved = resJson ..: "solved"
                               , Just True /= solved
                               , let timeLeft = resJson ..: "timeLeft"
@@ -156,7 +159,7 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  -- probs <- postTrain Nothing Nothing
+  -- probs <- postTrain Nothing (Just "fold")
   probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
@@ -190,6 +193,7 @@ tryInferProgram pid ops is os = do
   case (result ..: "status" :: Maybe String) of
     Just "win" -> exitWith ExitSuccess
     Just "mismatch" -> do
+      threadDelay 5000000
       let Just [i,o,_] = result ..: "values"
       tryInferProgram pid ops (read i:is) (read o:os)
     _          -> exitWith (ExitFailure 1)
