@@ -147,9 +147,8 @@ postMyProblems = do
     case decode' lbs of
       Just resJsons -> return [ resJson
                               | resJson <- resJsons
-                              -- , let Just operators = resJson ..: "operators"
-                              -- , ("fold" :: String) `notElem` operators -- とりあえず無視
-                              -- , ("tfold" :: String) `elem` operators -- ターゲット絞る
+                              , let Just operators = resJson ..: "operators"
+                              , ("bonus" :: String) `notElem` operators -- とりあえず無視
                               , let solved = resJson ..: "solved"
                               , Just True /= solved
                               , let timeLeft = resJson ..: "timeLeft"
@@ -196,7 +195,7 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  -- probs <- postTrain (Just 10) (Just [])
+  -- probs <- postTrain (Just 42) (Just [])
   probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
