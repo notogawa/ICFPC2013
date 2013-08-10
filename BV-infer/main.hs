@@ -314,7 +314,7 @@ genExpSizeOutFold n = oneof candidates
         return $ ExpIf0 e0 e1 e2
 
 genExpSizeWithFold :: Int -> Gen (Exp OutFold WithFold)
-genExpSizeWithFold n = oneof $ concat candidates
+genExpSizeWithFold n = oneof $ concat [ cost5 | n > 4 ]
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
@@ -399,7 +399,7 @@ genAllSmallProgramWithoutFold = Program (Id 0) <$> ([1..size - 1] >>= genAllExpS
       size = problemSize unsafeGetProblem
 
 genAllExpSizeWithFold :: Int -> [Exp OutFold WithFold]
-genAllExpSizeWithFold n = concat candidates
+genAllExpSizeWithFold n = concat [ cost5 | n > 4 ]
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
