@@ -254,7 +254,8 @@ inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
   let size = problemSize unsafeGetProblem
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithFold is os :
-                              map (findProgramWithFold is os) [max(size-8)1..size-1]) >>= waitAnyCancel
+                              findProgramWithFold' is os :
+                              map (findProgramWithFold is os) [max(size-4)1..size-1]) >>= waitAnyCancel
   case manswer of
     Just answer -> do
       print answer
@@ -267,7 +268,8 @@ inferProgram pid _ops is os = do
   let size = problemSize unsafeGetProblem
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithoutFold is os :
-                              map (findProgramWithoutFold is os) [max(size-8)1..size-1]) >>= waitAnyCancel
+                              findProgramWithoutFold' is os :
+                              map (findProgramWithoutFold is os) [max(size-4)1..size-1]) >>= waitAnyCancel
   case manswer of
     Just answer -> do
       print answer
