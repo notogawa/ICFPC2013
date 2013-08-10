@@ -431,28 +431,28 @@ genAllExpSizeWithFold n = concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
-      candidates = [ cost2 | n > 6, not $ null uops ] ++
+      candidates = [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
                    [ cost3 | n > 7, not $ null bops ] ++
-                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
+                   [ cost2 | n > 6, not $ null uops ] ++
                    [ cost5 | n > 4 ]
       cost2 = [ ExpUOp op e0
-              | op <- uops
-              , e0 <- genAllExpSizeWithFold (n-1)
+              | e0 <- genAllExpSizeWithFold (n-1)
+              , op <- uops
               , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
               ]
       cost3 = [ ExpBOp op e0 e1
-              | op <- bops
-              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              | (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
               , e1 <- genAllExpSizeOutFold n1
               , e1 /= ExpZero
               , e0 <- genAllExpSizeWithFold n0
+              , op <- bops
               ] ++
               [ ExpBOp op e0 e1
-              | op <- bops
-              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              | (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
               , e0 <- genAllExpSizeOutFold n1
               , e0 /= ExpZero
               , e1 <- genAllExpSizeWithFold n0
+              , op <- bops
               ]
       cost4 = [ ExpIf0 e0 e1 e2
               | (n0,n1,n2) <- [ (n0, n1, n2)
@@ -523,22 +523,21 @@ genAllExpSizeInFold shadowing n = concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
-      candidates = [ cost1 ] ++
-                   [ cost2 | n > 1, not $ null uops ] ++
+      candidates = [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ] ++
                    [ cost3 | n > 2, not $ null bops ] ++
-                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
+                   [ cost2 | n > 1, not $ null uops ] ++
+                   [ cost1 ]
       cost1 = [ ExpZero
               , ExpOne
               ] ++ map (ExpId . Id) (if shadowing then [0..1] else [1..2])
       cost2 = [ ExpUOp op e0
-              | op <- uops
-              , e0 <- genAllExpSizeInFold shadowing (n-1)
+              | e0 <- genAllExpSizeInFold shadowing (n-1)
+              , op <- uops
               , op == UnaryOpNot || e0 /= ExpZero -- not 以外はshiftなので0には意味無い
               , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
               ]
       cost3 = [ ExpBOp op e0 e1
-              | op <- bops
-              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              | (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
               , e0 <- genAllExpSizeInFold shadowing n0
               , e0 /= ExpZero -- or 0 は id なので意味無い
                               -- and 0 は 0 なので意味無い
@@ -546,6 +545,7 @@ genAllExpSizeInFold shadowing n = concat candidates
                               -- plus 0 は id なので意味無い
               , e1 <- genAllExpSizeInFold shadowing n1
               , e1 /= ExpZero
+              , op <- bops
               , not $ and [ op == BinaryOpXor, e0 == e1 ] -- xor a a は 0 なので意味無い
               , not $ and [ op == BinaryOpAnd, e0 == e1 ] -- and a a は a なので意味無い
               , not $ and [ op == BinaryOpOr, e0 == e1 ] -- or a a は a なので意味無い
@@ -568,27 +568,27 @@ genAllExpSizeOutFold n = concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
-      candidates = [ cost1 ] ++
-                   [ cost2 | n > 1, not $ null uops ] ++
+      candidates = [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ] ++
                    [ cost3 | n > 2, not $ null bops ] ++
-                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
+                   [ cost2 | n > 1, not $ null uops ] ++
+                   [ cost1 ]
       cost1 = [ ExpZero
               , ExpOne
               , ExpId (Id 0)
               ]
       cost2 = [ ExpUOp op e0
-              | op <- uops
-              , e0 <- genAllExpSizeOutFold (n-1)
+              | e0 <- genAllExpSizeOutFold (n-1)
+              , op <- uops
               , op == UnaryOpNot || e0 /= ExpZero -- not 以外はshiftなので0には意味無い
               , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
               ]
       cost3 = [ ExpBOp op e0 e1
-              | op <- bops
-              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              | (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
               , e0 <- genAllExpSizeOutFold n0
               , e0 /= ExpZero
               , e1 <- genAllExpSizeOutFold n1
               , e1 /= ExpZero
+              , op <- bops
               , not $ and [ op == BinaryOpXor, e0 == e1 ] -- xor a a は 0 なので意味無い
               , not $ and [ op == BinaryOpAnd, e0 == e1 ] -- and a a は a なので意味無い
               , not $ and [ op == BinaryOpOr, e0 == e1 ] -- or a a は a なので意味無い
