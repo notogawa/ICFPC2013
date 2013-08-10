@@ -123,12 +123,12 @@ postTrain size ops = do
   let reqJson = object [ "size" .= size
                        , "operators" .= ops
                        ]
-  request <- parseUrl "http://icfpc2013.cloudapp.net/train"
+  request <- parseUrl "http://localhost:8080/train"
   withManager $ \manager -> do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
                              , requestBody = RequestBodyLBS $ encode reqJson
-                             , responseTimeout = Just 20000000
+                             , responseTimeout = Just 60000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
@@ -137,11 +137,11 @@ postTrain size ops = do
 
 postMyProblems :: IO [Value]
 postMyProblems = do
-  request <- parseUrl "http://icfpc2013.cloudapp.net/myproblems"
+  request <- parseUrl "http://localhost:8080/myproblems"
   withManager $ \manager -> do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
-                             , responseTimeout = Just 20000000
+                             , responseTimeout = Just 60000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
@@ -162,12 +162,12 @@ postEval pid args = do
   let reqJson = object [ "id" .= pid
                        , "arguments" .= map (\x -> "0x" ++ showHex x "") args
                        ]
-  request <- parseUrl "http://icfpc2013.cloudapp.net/eval"
+  request <- parseUrl "http://localhost:8080/eval"
   withManager $ \manager -> do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
                              , requestBody = RequestBodyLBS $ encode reqJson
-                             , responseTimeout = Just 20000000
+                             , responseTimeout = Just 60000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
@@ -179,12 +179,12 @@ postGuess pid program = do
   let reqJson = object [ "id" .= pid
                        , "program" .= show program
                        ]
-  request <- parseUrl "http://icfpc2013.cloudapp.net/guess"
+  request <- parseUrl "http://localhost:8080/guess"
   withManager $ \manager -> do
     response <- http request { method = "POST"
                              , queryString = "auth=0164tBAjsBCWQrxfjTfakr5yCCbs8KIurruRhCdivpsH1H"
                              , requestBody = RequestBodyLBS $ encode reqJson
-                             , responseTimeout = Just 20000000
+                             , responseTimeout = Just 60000000
                              } manager
     lbs <- responseBody response $$+- sinkLbs
     case decode' lbs of
@@ -196,7 +196,7 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  -- probs <- postTrain Nothing (Just ["fold"])
+  -- probs <- postTrain (Just 10) (Just [])
   probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
@@ -266,6 +266,7 @@ inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
   case manswer of
     Just answer -> do
       print answer
+      getClockTime >>= print
       postGuess pid answer
     Nothing -> do
       exitImmediately ExitSuccess
@@ -278,6 +279,7 @@ inferProgram pid _ops is os = do
   case manswer of
     Just answer -> do
       print answer
+      getClockTime >>= print
       postGuess pid answer
     Nothing -> do
       exitImmediately ExitSuccess

@@ -1,0 +1,35 @@
+<h1 id="graceful">graceful</h1>
+<p>Library to write graceful shutdown / upgrade service.</p>
+<p><a href="https://travis-ci.org/notogawa/graceful"><embed src="https://travis-ci.org/notogawa/graceful.png?branch=master" /></a></p>
+<h1 id="install">Install</h1>
+<pre class="sourceCode bash"><code class="sourceCode bash">$ <span class="kw">cabal</span> update
+$ <span class="kw">cabal</span> install graceful</code></pre>
+<h1 id="controll-graceful-application">Controll Graceful Application</h1>
+<p>A graceful application can be controlled with signals.</p>
+<ul>
+<li>TERM/INT
+<ul>
+<li>fast shutdown</li>
+</ul></li>
+<li>QUIT
+<ul>
+<li>graceful shutdown</li>
+</ul></li>
+<li>HUP
+<ul>
+<li>restart worker
+<ol style="list-style-type: decimal">
+<li>starting new worker processes</li>
+<li>graceful shutdown old worker processes</li>
+</ol></li>
+</ul></li>
+<li>USR2
+<ul>
+<li>upgrading an executable file (starting new master &amp; worker processes)</li>
+</ul></li>
+</ul>
+<h1 id="upgrading-executable-on-the-fly">Upgrading Executable on the Fly</h1>
+<ol style="list-style-type: decimal">
+<li>Send USR2</li>
+<li>Send QUIT to old process</li>
+</ol>
