@@ -57,21 +57,21 @@ findProgramWithFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithFold))
 findProgramWithFold is os = do
   let ps = genAllProgramWithFold
       ops = filter ("tfold" /=) $ sort $ "fold" : problemOps unsafeGetProblem
-  case [ p | p <- ps, sort (opsOfProgram p) == ops, verify p is os ] of
+  case filter (\p -> sort (opsOfProgram p) == ops) $ filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
     [] -> error "not found"
 
 findSmallProgramWithFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithFold))
 findSmallProgramWithFold is os = do
   let ps = genAllSmallProgramWithFold
-  case [ p | p <- ps, verify p is os ] of
+  case filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
     [] -> findProgramWithFold' is os
 
 findProgramWithFold' :: [Word64] -> [Word64] -> IO (Maybe (Program WithFold))
 findProgramWithFold' is os = do
   ps <- sample' arbitrary
-  case [ p | p <- ps, verify p is os ] of
+  case filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
     [] -> findProgramWithFold' is os
 
@@ -100,21 +100,21 @@ findProgramWithoutFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithoutFold
 findProgramWithoutFold is os = do
   let ps = genAllProgramWithoutFold
       ops = sort $ problemOps unsafeGetProblem
-  case [ p | p <- ps, sort (opsOfProgram p) == ops, verify p is os ] of
+  case filter (\p -> sort (opsOfProgram p) == ops) $ filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
     [] -> error "not found"
 
 findSmallProgramWithoutFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithoutFold))
 findSmallProgramWithoutFold is os = do
   let ps = genAllSmallProgramWithoutFold
-  case [ p | p <- ps, verify p is os ] of
+  case filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
     [] -> findProgramWithoutFold' is os
 
 findProgramWithoutFold' :: [Word64] -> [Word64] -> IO (Maybe (Program WithoutFold))
 findProgramWithoutFold' is os = do
   ps <- sample' arbitrary
-  case [ p | p <- ps, verify p is os ] of
+  case filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
     [] -> findProgramWithoutFold' is os
 
@@ -240,13 +240,13 @@ main = do
 timeout :: IO (Maybe a)
 timeout = timeout' 0
     where
-      timeout' 300 = do
+      timeout' 5 = do
         getClockTime >>= print
         putStrLn "timeout"
         return Nothing
       timeout' n = do
         getClockTime >>= print
-        threadDelay (1000 * 1000)
+        threadDelay (60 * 1000 * 1000)
         timeout' (n+1)
 
 tryInferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO ()
@@ -265,7 +265,7 @@ inferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO Value
 inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithFold is os :
-                              findProgramWithFold is os :
+                              -- findProgramWithFold is os :
                               replicate 4 (findProgramWithFold' is os)) >>= waitAnyCancel
   case manswer of
     Just answer -> do
@@ -277,7 +277,7 @@ inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
 inferProgram pid _ops is os = do
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithoutFold is os :
-                              findProgramWithoutFold is os :
+                              -- findProgramWithoutFold is os :
                               replicate 4 (findProgramWithoutFold' is os)) >>= waitAnyCancel
   case manswer of
     Just answer -> do
