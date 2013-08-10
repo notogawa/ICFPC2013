@@ -147,9 +147,9 @@ postMyProblems = do
     case decode' lbs of
       Just resJsons -> return [ resJson
                               | resJson <- resJsons
-                              , let Just operators = resJson ..: "operators"
+                              -- , let Just operators = resJson ..: "operators"
                               -- , ("fold" :: String) `notElem` operators -- とりあえず無視
-                              , ("tfold" :: String) `elem` operators -- ターゲット絞る
+                              -- , ("tfold" :: String) `elem` operators -- ターゲット絞る
                               , let solved = resJson ..: "solved"
                               , Just True /= solved
                               , let timeLeft = resJson ..: "timeLeft"
@@ -196,8 +196,8 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  probs <- postTrain Nothing (Just ["fold"])
-  -- probs <- postMyProblems
+  -- probs <- postTrain Nothing (Just ["fold"])
+  probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
   let Just pid = prob ..: "id"
@@ -238,16 +238,12 @@ main = do
   tryInferProgram pid ops is os
 
 timeout :: IO (Maybe a)
-timeout = timeout' 0
-    where
-      timeout' 5 = do
-        getClockTime >>= print
-        putStrLn "timeout"
-        return Nothing
-      timeout' n = do
-        getClockTime >>= print
-        threadDelay (60 * 1000 * 1000)
-        timeout' (n+1)
+timeout = do
+  getClockTime >>= print
+  threadDelay (5 * 60 * 1000 * 1000)
+  getClockTime >>= print
+  putStrLn "timeout"
+  return Nothing
 
 tryInferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO ()
 tryInferProgram pid ops is os = do
@@ -416,12 +412,13 @@ genAllProgramWithFold = Program (Id 0) <$> gen (size - 1)
                else genAllExpSizeWithFold
 
 genAllSmallProgramWithFold :: [Program WithFold]
-genAllSmallProgramWithFold = Program (Id 0) <$> ([1..size - 1] >>= gen)
+genAllSmallProgramWithFold = Program (Id 0) <$> gen
     where
       size = problemSize unsafeGetProblem
       gen = if problemHasTFold unsafeGetProblem
-               then genAllExpSizeWithTFold
-               else genAllExpSizeWithFold
+               then [1..size - 1] >>= genAllExpSizeWithTFold
+               else ([1..size - 1] >>= genAllExpSizeWithFold') ++
+                    ([1..size - 1] >>= genAllExpSizeWithFold)
 
 genAllProgramWithoutFold :: [Program WithoutFold]
 genAllProgramWithoutFold = Program (Id 0) <$> genAllExpSizeOutFold (size - 1)
@@ -438,10 +435,10 @@ genAllExpSizeWithFold n = concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
-      candidates = [ cost5 | n > 4 ] ++
-                   [ cost2 | n > 6, not $ null uops ] ++
+      candidates = [ cost2 | n > 6, not $ null uops ] ++
                    [ cost3 | n > 7, not $ null bops ] ++
-                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ]
+                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
+                   [ cost5 | n > 4 ]
       cost2 = [ ExpUOp op e0
               | op <- uops
               , e0 <- genAllExpSizeWithFold (n-1)
@@ -497,6 +494,20 @@ genAllExpSizeWithFold n = concat candidates
               , not $ and [ e0 == ExpZero ] -- if0 0 は意味無い
               , not $ and [ e0 == ExpOne ] -- if0 1 は意味無い
               ]
+      cost5 = do
+        (n0,n1,n2) <- [ (n0, n1, n2)
+                      | n0 <- [1..n]
+                      , n1 <- [1..n-n0]
+                      , let n2=n-2-n0-n1, 0 < n2
+                      ]
+        e0 <- genAllExpSizeOutFold n0
+        e1 <- genAllExpSizeOutFold n1
+        e2 <- genAllExpSizeInFold False n2
+        return $ ExpFold e0 e1 (Id 1) (Id 2) e2
+
+genAllExpSizeWithFold' :: Int -> [Exp OutFold WithFold]
+genAllExpSizeWithFold' n = concat [ cost5 | n > 4 ]
+    where
       cost5 = do
         (n0,n1,n2) <- [ (n0, n1, n2)
                       | n0 <- [1..n]
