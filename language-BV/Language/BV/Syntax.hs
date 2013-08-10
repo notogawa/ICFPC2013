@@ -57,6 +57,7 @@ data Exp inout fold where
                BinaryOp -> Exp io a -> Exp io b -> Exp io (a :+: b)
 
 instance (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Eq (Exp io fold) where
+    a == b = show a == show b
 
 instance (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Show (Exp io fold) where
     show ExpZero = "0"

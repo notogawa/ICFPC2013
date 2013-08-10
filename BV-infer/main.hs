@@ -24,6 +24,7 @@ import Control.Concurrent.Async
 import System.Random
 import System.Exit
 import System.Time ( getClockTime )
+import System.Timeout ( timeout )
 
 data Problem =
     Problem { problemSize :: Int
@@ -147,7 +148,7 @@ postMyProblems = do
       Just resJsons -> return [ resJson
                               | resJson <- resJsons
                               , let Just operators = resJson ..: "operators"
-                              , ("fold" :: String) `notElem` operators -- とりあえず無視
+                              -- , ("fold" :: String) `notElem` operators -- とりあえず無視
                               , ("tfold" :: String) `elem` operators -- ターゲット絞る
                               , let solved = resJson ..: "solved"
                               , Just True /= solved
@@ -195,8 +196,8 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  -- probs <- postTrain (Just 17) (Just ["tfold"])
-  probs <- postMyProblems
+  probs <- postTrain Nothing (Just ["fold"])
+  -- probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
   let Just pid = prob ..: "id"
@@ -220,14 +221,10 @@ main = do
       os1 = map read os1'
   let is = is0 ++ is1
       os = os0 ++ os1
-  tryInferProgram pid ops is os `race_` timeout
-
-timeout :: IO ()
-timeout = do
-  getClockTime  >>= print
-  threadDelay (5 * 60 * 1000 * 1000)
-  getClockTime  >>= print
-  putStrLn "timeout"
+  getClockTime >>= print
+  _ <- timeout (5 * 60 * 1000 * 1000) $ tryInferProgram pid ops is os
+  getClockTime >>= print
+  return ()
 
 tryInferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO ()
 tryInferProgram pid ops is os = do
@@ -248,7 +245,7 @@ inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
                              replicate 4 (findProgramWithFold' is os)) >>= waitAny
   print answer
   postGuess pid answer
-inferProgram pid ops is os = do
+inferProgram pid _ops is os = do
   (_, answer) <- mapM async (findSmallProgramWithoutFold is os :
                              findProgramWithoutFold is os :
                              replicate 4 (findProgramWithoutFold' is os)) >>= waitAny
@@ -277,7 +274,7 @@ genExpSizeInFold shadowing n = oneof candidates
                    [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
       cost1 = [ return ExpZero
               , return ExpOne
-              , ExpId . Id <$> oneof (map return [0..if shadowing then 1 else 2])
+              , ExpId . Id <$> oneof (map return (if shadowing then [0..1] else [1..2]))
               ]
       cost2 = ExpUOp <$> (oneof $ map return uops) <*> genExpSizeInFold shadowing (n-1)
       cost3 = do
@@ -384,7 +381,7 @@ genAllProgramWithFold = Program (Id 0) <$> gen (size - 1)
                else genAllExpSizeWithFold
 
 genAllSmallProgramWithFold :: [Program WithFold]
-genAllSmallProgramWithFold = Program (Id 0) <$> ([1..size - 2] >>= gen)
+genAllSmallProgramWithFold = Program (Id 0) <$> ([1..size - 1] >>= gen)
     where
       size = problemSize unsafeGetProblem
       gen = if problemHasTFold unsafeGetProblem
@@ -410,21 +407,26 @@ genAllExpSizeWithFold n = concat candidates
                    [ cost3 | n > 7, not $ null bops ] ++
                    [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
                    [ cost5 | n > 4 ]
-      cost2 = do
-        op <- uops
-        e0 <- genAllExpSizeWithFold (n-1)
-        return $ ExpUOp op e0
+      cost2 = [ ExpUOp op e0
+              | op <- uops
+              , e0 <- genAllExpSizeWithFold (n-1)
+              , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
+              ]
       cost3 = [ ExpBOp op e0 e1
               | op <- bops
               , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
               , e0 <- genAllExpSizeWithFold n0
               , e1 <- genAllExpSizeOutFold n1
+              , not $ and [ op == BinaryOpOr, e1 == ExpZero ] -- or 0 は id なので意味無い
+              , not $ and [ op == BinaryOpAnd, e1 == ExpZero ] -- and 0 は 0 なので意味無い
               ] ++
               [ ExpBOp op e0 e1
               | op <- bops
               , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
               , e1 <- genAllExpSizeWithFold n0
               , e0 <- genAllExpSizeOutFold n1
+              , not $ and [ op == BinaryOpOr, e0 == ExpZero ] -- or 0 は id なので意味無い
+              , not $ and [ op == BinaryOpAnd, e0 == ExpZero ] -- and 0 は 0 なので意味無い
               ]
       cost4 = [ ExpIf0 e0 e1 e2
               | (n0,n1,n2) <- [ (n0, n1, n2)
@@ -445,6 +447,8 @@ genAllExpSizeWithFold n = concat candidates
               , e1 <- genAllExpSizeWithFold n0
               , e2 <- genAllExpSizeOutFold n1
               , e0 <- genAllExpSizeOutFold n2
+              , not $ and [ e0 == ExpZero ] -- if0 0 は意味無い
+              , not $ and [ e0 == ExpOne ] -- if0 1 は意味無い
               ] ++
               [ ExpIf0 e0 e1 e2
               | (n0,n1,n2) <- [ (n0, n1, n2)
@@ -455,6 +459,8 @@ genAllExpSizeWithFold n = concat candidates
               , e2 <- genAllExpSizeWithFold n0
               , e0 <- genAllExpSizeOutFold n1
               , e1 <- genAllExpSizeOutFold n2
+              , not $ and [ e0 == ExpZero ] -- if0 0 は意味無い
+              , not $ and [ e0 == ExpOne ] -- if0 1 は意味無い
               ]
       cost5 = do
         (n0,n1,n2) <- [ (n0, n1, n2)
@@ -483,27 +489,37 @@ genAllExpSizeInFold shadowing n = concat candidates
                    [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
       cost1 = [ ExpZero
               , ExpOne
-              ] ++ map (ExpId . Id) [0..if shadowing then 1 else 2]
-      cost2 = do
-        op <- uops
-        e0 <- genAllExpSizeInFold shadowing (n-1)
-        return $ ExpUOp op e0
-      cost3 = do
-        op <- bops
-        (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
-        e0 <- genAllExpSizeInFold shadowing n0
-        e1 <- genAllExpSizeInFold shadowing n1
-        return $ ExpBOp op e0 e1
-      cost4 = do
-        (n0,n1,n2) <- [ (n0, n1, n2)
-                      | n0 <- [1..n]
-                      , n1 <- [1..n-n0]
-                      , let n2=n-1-n0-n1, 0 < n2
-                      ]
-        e0 <- genAllExpSizeInFold shadowing n0
-        e1 <- genAllExpSizeInFold shadowing n1
-        e2 <- genAllExpSizeInFold shadowing n2
-        return $ ExpIf0 e0 e1 e2
+              ] ++ map (ExpId . Id) (if shadowing then [0..1] else [1..2])
+      cost2 = [ ExpUOp op e0
+              | op <- uops
+              , e0 <- genAllExpSizeInFold shadowing (n-1)
+              , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
+              ]
+      cost3 = [ ExpBOp op e0 e1
+              | op <- bops
+              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              , e0 <- genAllExpSizeInFold shadowing n0
+              , not $ and [ op == BinaryOpOr, e0 == ExpZero ] -- or 0 は id なので意味無い
+              , not $ and [ op == BinaryOpAnd, e0 == ExpZero ] -- and 0 は 0 なので意味無い
+              , e1 <- genAllExpSizeInFold shadowing n1
+              , not $ and [ op == BinaryOpOr, e1 == ExpZero ] -- or 0 は id なので意味無い
+              , not $ and [ op == BinaryOpAnd, e1 == ExpZero ] -- and 0 は 0 なので意味無い
+              , not $ and [ op == BinaryOpXor, e0 == e1 ] -- xor a a は 0 なので意味無い
+              , not $ and [ op == BinaryOpAnd, e0 == e1 ] -- and a a は a なので意味無い
+              , not $ and [ op == BinaryOpOr, e0 == e1 ] -- or a a は a なので意味無い
+              ]
+      cost4 = [ ExpIf0 e0 e1 e2
+              | (n0,n1,n2) <- [ (n0, n1, n2)
+                              | n0 <- [1..n]
+                              , n1 <- [1..n-n0]
+                              , let n2=n-1-n0-n1, 0 < n2
+                              ]
+              , e0 <- genAllExpSizeInFold shadowing n0
+              , e0 /= ExpZero -- if0 0 は意味無い
+              , e0 /= ExpOne -- if0 1 は意味無い
+              , e1 <- genAllExpSizeInFold shadowing n1
+              , e2 <- genAllExpSizeInFold shadowing n2
+              ]
 
 genAllExpSizeOutFold :: Int -> [Exp OutFold WithoutFold]
 genAllExpSizeOutFold n = concat candidates
@@ -518,23 +534,33 @@ genAllExpSizeOutFold n = concat candidates
               , ExpOne
               , ExpId (Id 0)
               ]
-      cost2 = do
-        op <- uops
-        e0 <- genAllExpSizeOutFold (n-1)
-        return $ ExpUOp op e0
-      cost3 = do
-        op <- bops
-        (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
-        e0 <- genAllExpSizeOutFold n0
-        e1 <- genAllExpSizeOutFold n1
-        return $ ExpBOp op e0 e1
-      cost4 = do
-        (n0,n1,n2) <- [ (n0, n1, n2)
-                      | n0 <- [1..n]
-                      , n1 <- [1..n-n0]
-                      , let n2=n-1-n0-n1, 0 < n2
-                      ]
-        e0 <- genAllExpSizeOutFold n0
-        e1 <- genAllExpSizeOutFold n1
-        e2 <- genAllExpSizeOutFold n2
-        return $ ExpIf0 e0 e1 e2
+      cost2 = [ ExpUOp op e0
+              | op <- uops
+              , e0 <- genAllExpSizeOutFold (n-1)
+              , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
+              ]
+      cost3 = [ ExpBOp op e0 e1
+              | op <- bops
+              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              , e0 <- genAllExpSizeOutFold n0
+              , not $ and [ op == BinaryOpOr, e0 == ExpZero ] -- or 0 は id なので意味無い
+              , not $ and [ op == BinaryOpAnd, e0 == ExpZero ] -- and 0 は 0 なので意味無い
+              , e1 <- genAllExpSizeOutFold n1
+              , not $ and [ op == BinaryOpOr, e1 == ExpZero ] -- or 0 は id なので意味無い
+              , not $ and [ op == BinaryOpAnd, e1 == ExpZero ] -- and 0 は 0 なので意味無い
+              , not $ and [ op == BinaryOpXor, e0 == e1 ] -- xor a a は 0 なので意味無い
+              , not $ and [ op == BinaryOpAnd, e0 == e1 ] -- and a a は a なので意味無い
+              , not $ and [ op == BinaryOpOr, e0 == e1 ] -- or a a は a なので意味無い
+              ]
+      cost4 = [ ExpIf0 e0 e1 e2
+              | (n0,n1,n2) <- [ (n0, n1, n2)
+                              | n0 <- [1..n]
+                              , n1 <- [1..n-n0]
+                              , let n2=n-1-n0-n1, 0 < n2
+                              ]
+              , e0 <- genAllExpSizeOutFold n0
+              , not $ and [ e0 == ExpZero ] -- if0 0 は意味無い
+              , not $ and [ e0 == ExpOne ] -- if0 1 は意味無い
+              , e1 <- genAllExpSizeOutFold n1
+              , e2 <- genAllExpSizeOutFold n2
+              ]
