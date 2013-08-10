@@ -134,6 +134,7 @@ postMyProblems = do
                               | resJson <- resJsons
                               , let Just operators = resJson ..: "operators"
                               , ("fold" :: String) `notElem` operators -- とりあえず無視
+                              , ("tfold" :: String) `elem` operators -- ターゲット絞る
                               , let solved = resJson ..: "solved"
                               , Just True /= solved
                               , let timeLeft = resJson ..: "timeLeft"
@@ -180,8 +181,8 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  probs <- postTrain (Just 30) Nothing
-  -- probs <- postMyProblems
+  -- probs <- postTrain (Just 30) Nothing
+  probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
   let Just pid = prob ..: "id"
