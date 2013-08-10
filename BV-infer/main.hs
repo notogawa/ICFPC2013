@@ -453,6 +453,7 @@ genAllExpSizeWithFold n = concat candidates
               , e1 <- genAllExpSizeOutFold n1
               , not $ and [ op == BinaryOpOr, e1 == ExpZero ] -- or 0 は id なので意味無い
               , not $ and [ op == BinaryOpAnd, e1 == ExpZero ] -- and 0 は 0 なので意味無い
+              , not $ and [ op == BinaryOpPlus, e1 == ExpZero ] -- plus 0 は id なので意味無い
               ] ++
               [ ExpBOp op e0 e1
               | op <- bops
@@ -461,6 +462,7 @@ genAllExpSizeWithFold n = concat candidates
               , e0 <- genAllExpSizeOutFold n1
               , not $ and [ op == BinaryOpOr, e0 == ExpZero ] -- or 0 は id なので意味無い
               , not $ and [ op == BinaryOpAnd, e0 == ExpZero ] -- and 0 は 0 なので意味無い
+              , not $ and [ op == BinaryOpPlus, e0 == ExpZero ] -- plus 0 は id なので意味無い
               ]
       cost4 = [ ExpIf0 e0 e1 e2
               | (n0,n1,n2) <- [ (n0, n1, n2)
@@ -549,9 +551,11 @@ genAllExpSizeInFold shadowing n = concat candidates
               , e0 <- genAllExpSizeInFold shadowing n0
               , not $ and [ op == BinaryOpOr, e0 == ExpZero ] -- or 0 は id なので意味無い
               , not $ and [ op == BinaryOpAnd, e0 == ExpZero ] -- and 0 は 0 なので意味無い
+              , not $ and [ op == BinaryOpPlus, e0 == ExpZero ] -- plus 0 は id なので意味無い
               , e1 <- genAllExpSizeInFold shadowing n1
               , not $ and [ op == BinaryOpOr, e1 == ExpZero ] -- or 0 は id なので意味無い
               , not $ and [ op == BinaryOpAnd, e1 == ExpZero ] -- and 0 は 0 なので意味無い
+              , not $ and [ op == BinaryOpPlus, e1 == ExpZero ] -- plus 0 は id なので意味無い
               , not $ and [ op == BinaryOpXor, e0 == e1 ] -- xor a a は 0 なので意味無い
               , not $ and [ op == BinaryOpAnd, e0 == e1 ] -- and a a は a なので意味無い
               , not $ and [ op == BinaryOpOr, e0 == e1 ] -- or a a は a なので意味無い
