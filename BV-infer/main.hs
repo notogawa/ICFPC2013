@@ -60,6 +60,13 @@ findProgramWithFold is os = do
     p : _ -> return p
     [] -> error "not found"
 
+findSmallProgramWithFold :: [Word64] -> [Word64] -> IO (Program WithFold)
+findSmallProgramWithFold is os = do
+  let ps = genAllSmallProgramWithFold
+  case [ p | p <- ps, verify p is os ] of
+    p : _ -> return p
+    [] -> findProgramWithFold' is os
+
 findProgramWithFold' :: [Word64] -> [Word64] -> IO (Program WithFold)
 findProgramWithFold' is os = do
   ps <- sample' arbitrary
@@ -96,6 +103,13 @@ findProgramWithoutFold is os = do
     p : _ -> return p
     [] -> error "not found"
 
+findSmallProgramWithoutFold :: [Word64] -> [Word64] -> IO (Program WithoutFold)
+findSmallProgramWithoutFold is os = do
+  let ps = genAllSmallProgramWithoutFold
+  case [ p | p <- ps, verify p is os ] of
+    p : _ -> return p
+    [] -> findProgramWithoutFold' is os
+
 findProgramWithoutFold' :: [Word64] -> [Word64] -> IO (Program WithoutFold)
 findProgramWithoutFold' is os = do
   ps <- sample' arbitrary
@@ -103,7 +117,7 @@ findProgramWithoutFold' is os = do
     p : _ -> return p
     [] -> findProgramWithoutFold' is os
 
-postTrain :: Maybe Int -> Maybe String -> IO [Value]
+postTrain :: Maybe Int -> Maybe [String] -> IO [Value]
 postTrain size ops = do
   let reqJson = object [ "size" .= size
                        , "operators" .= ops
@@ -181,7 +195,7 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  -- probs <- postTrain (Just 30) Nothing
+  -- probs <- postTrain (Just 17) (Just ["tfold"])
   probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
@@ -229,11 +243,15 @@ tryInferProgram pid ops is os = do
 
 inferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO Value
 inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
-  (_, answer) <- mapM async (findProgramWithFold is os : replicate 4 (findProgramWithFold' is os)) >>= waitAny
+  (_, answer) <- mapM async (findSmallProgramWithFold is os :
+                             findProgramWithFold is os :
+                             replicate 4 (findProgramWithFold' is os)) >>= waitAny
   print answer
   postGuess pid answer
 inferProgram pid ops is os = do
-  (_, answer) <- mapM async (findProgramWithoutFold is os : replicate 4 (findProgramWithoutFold' is os)) >>= waitAny
+  (_, answer) <- mapM async (findSmallProgramWithoutFold is os :
+                             findProgramWithoutFold is os :
+                             replicate 4 (findProgramWithoutFold' is os)) >>= waitAny
   print answer
   postGuess pid answer
 
@@ -365,8 +383,21 @@ genAllProgramWithFold = Program (Id 0) <$> gen (size - 1)
                then genAllExpSizeWithTFold
                else genAllExpSizeWithFold
 
+genAllSmallProgramWithFold :: [Program WithFold]
+genAllSmallProgramWithFold = Program (Id 0) <$> ([1..size - 2] >>= gen)
+    where
+      size = problemSize unsafeGetProblem
+      gen = if problemHasTFold unsafeGetProblem
+               then genAllExpSizeWithTFold
+               else genAllExpSizeWithFold
+
 genAllProgramWithoutFold :: [Program WithoutFold]
 genAllProgramWithoutFold = Program (Id 0) <$> genAllExpSizeOutFold (size - 1)
+    where
+      size = problemSize unsafeGetProblem
+
+genAllSmallProgramWithoutFold :: [Program WithoutFold]
+genAllSmallProgramWithoutFold = Program (Id 0) <$> ([1..size - 1] >>= genAllExpSizeOutFold)
     where
       size = problemSize unsafeGetProblem
 
