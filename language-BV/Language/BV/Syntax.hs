@@ -117,7 +117,7 @@ sizeOfExp (ExpFold e0 e1 _ _ e2) = 2 + sizeOfExp e0 + sizeOfExp e1 + sizeOfExp e
 sizeOfExp (ExpUOp _ e0) = 1 + sizeOfExp e0
 sizeOfExp (ExpBOp _ e0 e1) = 1 + sizeOfExp e0 + sizeOfExp e1
 
-opsOfProgram :: (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Program fold -> [String]
+opsOfProgram :: AtMostOneOccurrenceOfFold fold => Program fold -> [String]
 opsOfProgram (Program _ e) = opsOfExp e
 
 opsOfExp :: (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Exp io fold -> [String]
@@ -128,3 +128,27 @@ opsOfExp (ExpIf0 e0 e1 e2) = nub $ "if0" : opsOfExp e0 ++ opsOfExp e1 ++ opsOfEx
 opsOfExp (ExpFold e0 e1 _ _ e2) = nub $ "fold" : opsOfExp e0 ++ opsOfExp e1 ++ opsOfExp e2
 opsOfExp (ExpUOp op e0) = nub $ show op : opsOfExp e0
 opsOfExp (ExpBOp op e0 e1) = nub $ show op : opsOfExp e0 ++ opsOfExp e1
+
+uopsOfProgram :: (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Program fold -> [UnaryOp]
+uopsOfProgram (Program _ e) = uopsOfExp e
+
+uopsOfExp :: (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Exp io fold -> [UnaryOp]
+uopsOfExp ExpZero = []
+uopsOfExp ExpOne = []
+uopsOfExp (ExpId _) = []
+uopsOfExp (ExpIf0 e0 e1 e2) = nub $ uopsOfExp e0 ++ uopsOfExp e1 ++ uopsOfExp e2
+uopsOfExp (ExpFold e0 e1 _ _ e2) = nub $ uopsOfExp e0 ++ uopsOfExp e1 ++ uopsOfExp e2
+uopsOfExp (ExpUOp op e0) = nub $ op : uopsOfExp e0
+uopsOfExp (ExpBOp _ e0 e1) = nub $ uopsOfExp e0 ++ uopsOfExp e1
+
+bopsOfProgram :: (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Program fold -> [BinaryOp]
+bopsOfProgram (Program _ e) = bopsOfExp e
+
+bopsOfExp :: (AtMostOneOccurrenceOfFold fold, FoldInOut io) => Exp io fold -> [BinaryOp]
+bopsOfExp ExpZero = []
+bopsOfExp ExpOne = []
+bopsOfExp (ExpId _) = []
+bopsOfExp (ExpIf0 e0 e1 e2) = nub $ bopsOfExp e0 ++ bopsOfExp e1 ++ bopsOfExp e2
+bopsOfExp (ExpFold e0 e1 _ _ e2) = nub $ bopsOfExp e0 ++ bopsOfExp e1 ++ bopsOfExp e2
+bopsOfExp (ExpUOp _ e0) = nub $ bopsOfExp e0
+bopsOfExp (ExpBOp op e0 e1) = nub $ op : bopsOfExp e0 ++ bopsOfExp e1

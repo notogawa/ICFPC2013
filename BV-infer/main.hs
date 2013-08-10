@@ -7,7 +7,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.Bits
 import Data.Function ( on )
-import Data.List ( nub, sortBy )
+import Data.List ( nub, sortBy, sort )
 import Data.Word
 import Data.IORef
 import Data.Text ( Text )
@@ -23,25 +23,30 @@ import Control.Concurrent ( threadDelay )
 import Control.Concurrent.Async
 import System.Random
 import System.Exit
+import System.Time ( getClockTime )
 
 data Problem =
     Problem { problemSize :: Int
+            , problemOps :: [String]
             , problemUnaryOps :: [UnaryOp]
             , problemBinaryOps :: [BinaryOp]
             , problemHasFold :: Bool
             , problemHasTFold :: Bool
+            , problemHasIf0 :: Bool
             }
 
 problem :: IORef Problem
-problem = unsafePerformIO (newIORef $ Problem 0 [] [] False False)
+problem = unsafePerformIO (newIORef $ Problem 0 [] [] [] False False False)
 
 setting :: Int -> [String] -> IO ()
 setting size ops = writeIORef problem $
                    Problem { problemSize = size
+                           , problemOps = ops
                            , problemUnaryOps = toUOps ops
                            , problemBinaryOps = toBOps ops
                            , problemHasFold = elem "fold" ops
                            , problemHasTFold = elem "tfold" ops
+                           , problemHasIf0 = elem "if0" ops
                            }
 
 unsafeGetProblem :: Problem
@@ -49,10 +54,18 @@ unsafeGetProblem = unsafePerformIO $ readIORef problem
 
 findProgramWithFold :: [Word64] -> [Word64] -> IO (Program WithFold)
 findProgramWithFold is os = do
+  let ps = genAllProgramWithFold
+      ops = filter ("tfold" /=) $ sort $ "fold" : problemOps unsafeGetProblem
+  case [ p | p <- ps, sort (opsOfProgram p) == ops, verify p is os ] of
+    p : _ -> return p
+    [] -> error "not found"
+
+findProgramWithFold' :: [Word64] -> [Word64] -> IO (Program WithFold)
+findProgramWithFold' is os = do
   ps <- sample' arbitrary
   case [ p | p <- ps, verify p is os ] of
     p : _ -> return p
-    [] -> findProgramWithFold is os
+    [] -> findProgramWithFold' is os
 
 toUOp :: String -> Maybe UnaryOp
 toUOp "not" = Just UnaryOpNot
@@ -77,10 +90,18 @@ toBOps ops = [ op | Just op <- map toBOp ops ]
 
 findProgramWithoutFold :: [Word64] -> [Word64] -> IO (Program WithoutFold)
 findProgramWithoutFold is os = do
+  let ps = genAllProgramWithoutFold
+      ops = sort $ problemOps unsafeGetProblem
+  case [ p | p <- ps, sort (opsOfProgram p) == ops, verify p is os ] of
+    p : _ -> return p
+    [] -> error "not found"
+
+findProgramWithoutFold' :: [Word64] -> [Word64] -> IO (Program WithoutFold)
+findProgramWithoutFold' is os = do
   ps <- sample' arbitrary
   case [ p | p <- ps, verify p is os ] of
     p : _ -> return p
-    [] -> findProgramWithoutFold is os
+    [] -> findProgramWithoutFold' is os
 
 postTrain :: Maybe Int -> Maybe String -> IO [Value]
 postTrain size ops = do
@@ -159,8 +180,8 @@ v ..: t = parseMaybe (withObject "" (.: t)) v
 
 main :: IO ()
 main = do
-  -- probs <- postTrain Nothing (Just "fold")
-  probs <- postMyProblems
+  probs <- postTrain (Just 30) Nothing
+  -- probs <- postMyProblems
   let prob = head $ sortBy (compare `on` (\x -> x ..: "size" :: Maybe Int)) probs
   print prob
   let Just pid = prob ..: "id"
@@ -184,7 +205,14 @@ main = do
       os1 = map read os1'
   let is = is0 ++ is1
       os = os0 ++ os1
-  tryInferProgram pid ops is os
+  tryInferProgram pid ops is os `race_` timeout
+
+timeout :: IO ()
+timeout = do
+  getClockTime  >>= print
+  threadDelay (5 * 60 * 1000 * 1000)
+  getClockTime  >>= print
+  putStrLn "timeout"
 
 tryInferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO ()
 tryInferProgram pid ops is os = do
@@ -200,11 +228,11 @@ tryInferProgram pid ops is os = do
 
 inferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO Value
 inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
-  (_, answer) <- mapM async (replicate 12 $ findProgramWithFold is os) >>= waitAny
+  (_, answer) <- mapM async (findProgramWithFold is os : replicate 4 (findProgramWithFold' is os)) >>= waitAny
   print answer
   postGuess pid answer
 inferProgram pid ops is os = do
-  (_, answer) <- mapM async (replicate 12 $ findProgramWithoutFold is os) >>= waitAny
+  (_, answer) <- mapM async (findProgramWithoutFold is os : replicate 4 (findProgramWithoutFold' is os)) >>= waitAny
   print answer
   postGuess pid answer
 
@@ -227,7 +255,7 @@ genExpSizeInFold shadowing n = oneof candidates
       candidates = cost1 ++
                    [ cost2 | n > 1, not $ null uops ] ++
                    [ cost3 | n > 2, not $ null bops ] ++
-                   [ cost4 | n > 3 ]
+                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
       cost1 = [ return ExpZero
               , return ExpOne
               , ExpId . Id <$> oneof (map return [0..if shadowing then 1 else 2])
@@ -252,7 +280,7 @@ genExpSizeOutFold n = oneof candidates
       candidates = cost1 ++
                    [ cost2 | n > 1, not $ null uops ] ++
                    [ cost3 | n > 2, not $ null bops ] ++
-                   [ cost4 | n > 3 ]
+                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
       cost1 = [ return ExpZero
               , return ExpOne
               , return $ ExpId (Id 0)
@@ -270,15 +298,15 @@ genExpSizeOutFold n = oneof candidates
         return $ ExpIf0 e0 e1 e2
 
 genExpSizeWithFold :: Int -> Gen (Exp OutFold WithFold)
-genExpSizeWithFold n = oneof candidates
+genExpSizeWithFold n = oneof $ concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
       candidates = [ cost2 | n > 6, not $ null uops ] ++
-                   filter (const (n > 7 && not (null bops))) cost3 ++
-                   filter (const (n > 8)) cost4 ++
+                   [ cost3 | n > 7, not $ null bops ] ++
+                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
                    [ cost5 | n > 4 ]
-      cost2 = ExpUOp <$> (oneof $ map return uops) <*> genExpSizeWithFold (n-1)
+      cost2 = [ ExpUOp <$> (oneof $ map return uops) <*> genExpSizeWithFold (n-1) ]
       cost3 = [ do op <- oneof $ map return bops
                    e0 <- genExpSizeWithFold (n-2)
                    e1 <- genExpSizeOutFold (n-1-sizeOfExp e0)
@@ -301,11 +329,11 @@ genExpSizeWithFold n = oneof candidates
                    e1 <- genExpSizeOutFold (n-1-sizeOfExp e2-sizeOfExp e0)
                    return $ ExpIf0 e0 e1 e2
               ]
-      cost5 = do
-        e0 <- genExpSizeOutFold (n-4)
-        e1 <- genExpSizeOutFold (n-3-sizeOfExp e0)
-        e2 <- genExpSizeInFold False (n-2-sizeOfExp e0-sizeOfExp e1)
-        return $ ExpFold e0 e1 (Id 1) (Id 2) e2
+      cost5 = [ do e0 <- genExpSizeOutFold (n-4)
+                   e1 <- genExpSizeOutFold (n-3-sizeOfExp e0)
+                   e2 <- genExpSizeInFold False (n-2-sizeOfExp e0-sizeOfExp e1)
+                   return $ ExpFold e0 e1 (Id 1) (Id 2) e2
+              ]
 
 genExpSizeWithTFold :: Int -> Gen (Exp OutFold WithFold)
 genExpSizeWithTFold n = oneof candidates
@@ -327,3 +355,154 @@ instance Arbitrary (Exp OutFold WithoutFold) where
     arbitrary = genExpSizeOutFold (size - 1)
         where
           size = problemSize unsafeGetProblem
+
+genAllProgramWithFold :: [Program WithFold]
+genAllProgramWithFold = Program (Id 0) <$> gen (size - 1)
+    where
+      size = problemSize unsafeGetProblem
+      gen = if problemHasTFold unsafeGetProblem
+               then genAllExpSizeWithTFold
+               else genAllExpSizeWithFold
+
+genAllProgramWithoutFold :: [Program WithoutFold]
+genAllProgramWithoutFold = Program (Id 0) <$> genAllExpSizeOutFold (size - 1)
+    where
+      size = problemSize unsafeGetProblem
+
+genAllExpSizeWithFold :: Int -> [Exp OutFold WithFold]
+genAllExpSizeWithFold n = concat candidates
+    where
+      uops = problemUnaryOps unsafeGetProblem
+      bops = problemBinaryOps unsafeGetProblem
+      candidates = [ cost2 | n > 6, not $ null uops ] ++
+                   [ cost3 | n > 7, not $ null bops ] ++
+                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
+                   [ cost5 | n > 4 ]
+      cost2 = do
+        op <- uops
+        e0 <- genAllExpSizeWithFold (n-1)
+        return $ ExpUOp op e0
+      cost3 = [ ExpBOp op e0 e1
+              | op <- bops
+              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              , e0 <- genAllExpSizeWithFold n0
+              , e1 <- genAllExpSizeOutFold n1
+              ] ++
+              [ ExpBOp op e0 e1
+              | op <- bops
+              , (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+              , e1 <- genAllExpSizeWithFold n0
+              , e0 <- genAllExpSizeOutFold n1
+              ]
+      cost4 = [ ExpIf0 e0 e1 e2
+              | (n0,n1,n2) <- [ (n0, n1, n2)
+                              | n0 <- [1..n]
+                              , n1 <- [1..n-n0]
+                              , let n2=n-1-n0-n1, 0 < n2
+                              ]
+              , e0 <- genAllExpSizeWithFold n0
+              , e1 <- genAllExpSizeOutFold n1
+              , e2 <- genAllExpSizeOutFold n2
+              ] ++
+              [ ExpIf0 e0 e1 e2
+              | (n0,n1,n2) <- [ (n0, n1, n2)
+                              | n0 <- [1..n]
+                              , n1 <- [1..n-n0]
+                              , let n2=n-1-n0-n1, 0 < n2
+                              ]
+              , e1 <- genAllExpSizeWithFold n0
+              , e2 <- genAllExpSizeOutFold n1
+              , e0 <- genAllExpSizeOutFold n2
+              ] ++
+              [ ExpIf0 e0 e1 e2
+              | (n0,n1,n2) <- [ (n0, n1, n2)
+                              | n0 <- [1..n]
+                              , n1 <- [1..n-n0]
+                              , let n2=n-1-n0-n1, 0 < n2
+                              ]
+              , e2 <- genAllExpSizeWithFold n0
+              , e0 <- genAllExpSizeOutFold n1
+              , e1 <- genAllExpSizeOutFold n2
+              ]
+      cost5 = do
+        (n0,n1,n2) <- [ (n0, n1, n2)
+                      | n0 <- [1..n]
+                      , n1 <- [1..n-n0]
+                      , let n2=n-2-n0-n1, 0 < n2
+                      ]
+        e0 <- genAllExpSizeOutFold n0
+        e1 <- genAllExpSizeOutFold n1
+        e2 <- genAllExpSizeInFold False n2
+        return $ ExpFold e0 e1 (Id 1) (Id 2) e2
+
+genAllExpSizeWithTFold :: Int -> [Exp OutFold WithFold]
+genAllExpSizeWithTFold n = do
+  e2 <- genAllExpSizeInFold True (n-4)
+  return $ ExpFold (ExpId (Id 0)) ExpZero (Id 0) (Id 1) e2
+
+genAllExpSizeInFold :: Bool -> Int -> [Exp InFold WithoutFold]
+genAllExpSizeInFold shadowing n = concat candidates
+    where
+      uops = problemUnaryOps unsafeGetProblem
+      bops = problemBinaryOps unsafeGetProblem
+      candidates = [ cost1 ] ++
+                   [ cost2 | n > 1, not $ null uops ] ++
+                   [ cost3 | n > 2, not $ null bops ] ++
+                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
+      cost1 = [ ExpZero
+              , ExpOne
+              ] ++ map (ExpId . Id) [0..if shadowing then 1 else 2]
+      cost2 = do
+        op <- uops
+        e0 <- genAllExpSizeInFold shadowing (n-1)
+        return $ ExpUOp op e0
+      cost3 = do
+        op <- bops
+        (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+        e0 <- genAllExpSizeInFold shadowing n0
+        e1 <- genAllExpSizeInFold shadowing n1
+        return $ ExpBOp op e0 e1
+      cost4 = do
+        (n0,n1,n2) <- [ (n0, n1, n2)
+                      | n0 <- [1..n]
+                      , n1 <- [1..n-n0]
+                      , let n2=n-1-n0-n1, 0 < n2
+                      ]
+        e0 <- genAllExpSizeInFold shadowing n0
+        e1 <- genAllExpSizeInFold shadowing n1
+        e2 <- genAllExpSizeInFold shadowing n2
+        return $ ExpIf0 e0 e1 e2
+
+genAllExpSizeOutFold :: Int -> [Exp OutFold WithoutFold]
+genAllExpSizeOutFold n = concat candidates
+    where
+      uops = problemUnaryOps unsafeGetProblem
+      bops = problemBinaryOps unsafeGetProblem
+      candidates = [ cost1 ] ++
+                   [ cost2 | n > 1, not $ null uops ] ++
+                   [ cost3 | n > 2, not $ null bops ] ++
+                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
+      cost1 = [ ExpZero
+              , ExpOne
+              , ExpId (Id 0)
+              ]
+      cost2 = do
+        op <- uops
+        e0 <- genAllExpSizeOutFold (n-1)
+        return $ ExpUOp op e0
+      cost3 = do
+        op <- bops
+        (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1 ]
+        e0 <- genAllExpSizeOutFold n0
+        e1 <- genAllExpSizeOutFold n1
+        return $ ExpBOp op e0 e1
+      cost4 = do
+        (n0,n1,n2) <- [ (n0, n1, n2)
+                      | n0 <- [1..n]
+                      , n1 <- [1..n-n0]
+                      , let n2=n-1-n0-n1, 0 < n2
+                      ]
+        e0 <- genAllExpSizeOutFold n0
+        e1 <- genAllExpSizeOutFold n1
+        e2 <- genAllExpSizeOutFold n2
+        return $ ExpIf0 e0 e1 e2

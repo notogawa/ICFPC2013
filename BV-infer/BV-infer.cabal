@@ -28,3 +28,4 @@ executable BV-infer
                      , async
                      , text
                      , random
+                     , old-time
