@@ -24,6 +24,7 @@ import Control.Concurrent.Async
 import System.Random
 import System.Exit
 import System.Time ( getClockTime )
+import System.Posix.Process ( exitImmediately )
 
 data Problem =
     Problem { problemSize :: Int
@@ -65,7 +66,7 @@ findSmallProgramWithFold is os = do
   let ps = genAllSmallProgramWithFold
   case [ p | p <- ps, verify p is os ] of
     p : _ -> return $ Just p
-    [] -> error "not found"
+    [] -> findProgramWithFold' is os
 
 findProgramWithFold' :: [Word64] -> [Word64] -> IO (Maybe (Program WithFold))
 findProgramWithFold' is os = do
@@ -108,7 +109,7 @@ findSmallProgramWithoutFold is os = do
   let ps = genAllSmallProgramWithoutFold
   case [ p | p <- ps, verify p is os ] of
     p : _ -> return $ Just p
-    [] -> error "not found"
+    [] -> findProgramWithoutFold' is os
 
 findProgramWithoutFold' :: [Word64] -> [Word64] -> IO (Maybe (Program WithoutFold))
 findProgramWithoutFold' is os = do
@@ -204,9 +205,23 @@ main = do
       Just ops = prob ..: "operators"
   setting size ops
   let fibs = [0,1,2,3,5,8,13,21,34,55 :: Int]
-      bits = [0, complement 0] ++
-             [foldr ((+).(2^)) 0 fibs] ++
-             [foldr ((+).(2^)) 0 (reverse fibs)] ++
+      bits = [ 0
+             , complement 0
+             , foldr ((+).(2^)) 0 fibs
+             , foldr ((+).(2^)) 0 (reverse fibs)
+             , 0x5555555555555555 -- 0101
+             , 0xAAAAAAAAAAAAAAAA -- 1010
+             , 0x3333333333333333 -- 0011
+             , 0xCCCCCCCCCCCCCCCC -- 1100
+             , 0x0F0F0F0F0F0F0F0F -- 00001111
+             , 0xF0F0F0F0F0F0F0F0 -- 00001111
+             , 0x00FF00FF00FF00FF
+             , 0xFF00FF00FF00FF00
+             , 0x0000FFFF0000FFFF
+             , 0xFFFF0000FFFF0000
+             , 0x00000000FFFFFFFF
+             , 0xFFFFFFFF00000000
+             ] ++
              map (2^) [0..63 :: Int] ++
              map ((1+).(2^)) [1..63 :: Int] ++
              map ((2^(63 :: Int)+).(2^)) [0..62 :: Int]
@@ -220,55 +235,57 @@ main = do
       os1 = map read os1'
   let is = is0 ++ is1
       os = os0 ++ os1
-  getClockTime >>= print
   tryInferProgram pid ops is os
 
 timeout :: IO (Maybe a)
-timeout = do
-  threadDelay (5 * 60 * 1000 * 1000)
-  return Nothing
+timeout = timeout' 0
+    where
+      timeout' 300 = do
+        getClockTime >>= print
+        putStrLn "timeout"
+        return Nothing
+      timeout' n = do
+        getClockTime >>= print
+        threadDelay (1000 * 1000)
+        timeout' (n+1)
 
 tryInferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO ()
 tryInferProgram pid ops is os = do
   result <- inferProgram pid ops is os
   print result
   case (result ..: "status" :: Maybe String) of
-    Just "win" -> exitWith ExitSuccess
+    Just "win" -> exitImmediately ExitSuccess
     Just "mismatch" -> do
       threadDelay 5000000
       let Just [i,o,_] = result ..: "values"
       tryInferProgram pid ops (read i:is) (read o:os)
-    _          -> exitWith (ExitFailure 1)
+    _          -> exitImmediately (ExitFailure 1)
 
 inferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO Value
 inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithFold is os :
                               findProgramWithFold is os :
-                              replicate 4 (findProgramWithFold' is os)) >>= waitAny
+                              replicate 4 (findProgramWithFold' is os)) >>= waitAnyCancel
   case manswer of
     Just answer -> do
       print answer
-      getClockTime >>= print
       postGuess pid answer
     Nothing -> do
-      putStrLn "timeout"
-      getClockTime >>= print
-      exitWith ExitSuccess
+      exitImmediately ExitSuccess
+      return undefined
 inferProgram pid _ops is os = do
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithoutFold is os :
                               findProgramWithoutFold is os :
-                              replicate 4 (findProgramWithoutFold' is os)) >>= waitAny
+                              replicate 4 (findProgramWithoutFold' is os)) >>= waitAnyCancel
   case manswer of
     Just answer -> do
       print answer
-      getClockTime >>= print
       postGuess pid answer
     Nothing -> do
-      putStrLn "timeout"
-      getClockTime >>= print
-      exitWith ExitSuccess
+      exitImmediately ExitSuccess
+      return undefined
 
 verify :: AtMostOneOccurrenceOfFold fold => Program fold -> [Word64] -> [Word64] -> Bool
 verify prog is os = and [ p i == o | (i, o) <- zip is os]
@@ -332,7 +349,7 @@ genExpSizeOutFold n = oneof candidates
         return $ ExpIf0 e0 e1 e2
 
 genExpSizeWithFold :: Int -> Gen (Exp OutFold WithFold)
-genExpSizeWithFold n = oneof $ concat [ cost5 | n > 4 ]
+genExpSizeWithFold n = oneof $ concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
@@ -417,14 +434,14 @@ genAllSmallProgramWithoutFold = Program (Id 0) <$> ([1..size - 1] >>= genAllExpS
       size = problemSize unsafeGetProblem
 
 genAllExpSizeWithFold :: Int -> [Exp OutFold WithFold]
-genAllExpSizeWithFold n = concat [ cost5 | n > 4 ]
+genAllExpSizeWithFold n = concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
-      candidates = [ cost2 | n > 6, not $ null uops ] ++
+      candidates = [ cost5 | n > 4 ] ++
+                   [ cost2 | n > 6, not $ null uops ] ++
                    [ cost3 | n > 7, not $ null bops ] ++
-                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
-                   [ cost5 | n > 4 ]
+                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ]
       cost2 = [ ExpUOp op e0
               | op <- uops
               , e0 <- genAllExpSizeWithFold (n-1)
