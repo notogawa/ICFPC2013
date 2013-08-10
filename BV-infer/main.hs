@@ -7,7 +7,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.Bits
 import Data.Function ( on )
-import Data.List ( nub, sortBy, sort )
+import Data.List ( nub, sortBy )
 import Data.Word
 import Data.IORef
 import Data.Text ( Text )
@@ -53,13 +53,12 @@ setting size ops = writeIORef problem $
 unsafeGetProblem :: Problem
 unsafeGetProblem = unsafePerformIO $ readIORef problem
 
-findProgramWithFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithFold))
-findProgramWithFold is os = do
-  let ps = genAllProgramWithFold
-      ops = filter ("tfold" /=) $ sort $ "fold" : problemOps unsafeGetProblem
-  case filter (\p -> sort (opsOfProgram p) == ops) $ filter (\p -> verify p is os) ps of
+findProgramWithFold :: [Word64] -> [Word64] -> Int -> IO (Maybe (Program WithFold))
+findProgramWithFold is os n = do
+  let ps = genAllProgramWithFold n
+  case filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
-    [] -> error "not found"
+    [] -> findProgramWithFold' is os
 
 findSmallProgramWithFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithFold))
 findSmallProgramWithFold is os = do
@@ -96,13 +95,12 @@ toBOp _ = Nothing
 toBOps :: [String] -> [BinaryOp]
 toBOps ops = [ op | Just op <- map toBOp ops ]
 
-findProgramWithoutFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithoutFold))
-findProgramWithoutFold is os = do
-  let ps = genAllProgramWithoutFold
-      ops = sort $ problemOps unsafeGetProblem
-  case filter (\p -> sort (opsOfProgram p) == ops) $ filter (\p -> verify p is os) ps of
+findProgramWithoutFold :: [Word64] -> [Word64] -> Int -> IO (Maybe (Program WithoutFold))
+findProgramWithoutFold is os n = do
+  let ps = genAllProgramWithoutFold n
+  case filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
-    [] -> error "not found"
+    [] -> findProgramWithoutFold' is os
 
 findSmallProgramWithoutFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithoutFold))
 findSmallProgramWithoutFold is os = do
@@ -253,10 +251,10 @@ tryInferProgram pid ops is os = do
 
 inferProgram :: String -> [String] -> [Word64] -> [Word64] -> IO Value
 inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
+  let size = problemSize unsafeGetProblem
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithFold is os :
-                              -- findProgramWithFold is os :
-                              replicate 4 (findProgramWithFold' is os)) >>= waitAnyCancel
+                              map (findProgramWithFold is os) [max(size-8)1..size-1]) >>= waitAnyCancel
   case manswer of
     Just answer -> do
       print answer
@@ -266,10 +264,10 @@ inferProgram pid ops is os | elem "fold" ops || elem "tfold" ops = do
       exitImmediately ExitSuccess
       return undefined
 inferProgram pid _ops is os = do
+  let size = problemSize unsafeGetProblem
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithoutFold is os :
-                              -- findProgramWithoutFold is os :
-                              replicate 4 (findProgramWithoutFold' is os)) >>= waitAnyCancel
+                              map (findProgramWithoutFold is os) [max(size-8)1..size-1]) >>= waitAnyCancel
   case manswer of
     Just answer -> do
       print answer
@@ -399,13 +397,12 @@ instance Arbitrary (Exp OutFold WithoutFold) where
         where
           size = problemSize unsafeGetProblem
 
-genAllProgramWithFold :: [Program WithFold]
-genAllProgramWithFold = Program (Id 0) <$> gen (size - 1)
+genAllProgramWithFold :: Int -> [Program WithFold]
+genAllProgramWithFold n = Program (Id 0) <$> gen
     where
-      size = problemSize unsafeGetProblem
       gen = if problemHasTFold unsafeGetProblem
-               then genAllExpSizeWithTFold
-               else genAllExpSizeWithFold
+               then genAllExpSizeWithTFold n
+               else genAllExpSizeWithFold' n ++ genAllExpSizeWithFold n
 
 genAllSmallProgramWithFold :: [Program WithFold]
 genAllSmallProgramWithFold = Program (Id 0) <$> gen
@@ -416,10 +413,8 @@ genAllSmallProgramWithFold = Program (Id 0) <$> gen
                else ([1..size - 1] >>= genAllExpSizeWithFold') ++
                     ([1..size - 1] >>= genAllExpSizeWithFold)
 
-genAllProgramWithoutFold :: [Program WithoutFold]
-genAllProgramWithoutFold = Program (Id 0) <$> genAllExpSizeOutFold (size - 1)
-    where
-      size = problemSize unsafeGetProblem
+genAllProgramWithoutFold :: Int -> [Program WithoutFold]
+genAllProgramWithoutFold n = Program (Id 0) <$> genAllExpSizeOutFold n
 
 genAllSmallProgramWithoutFold :: [Program WithoutFold]
 genAllSmallProgramWithoutFold = Program (Id 0) <$> ([1..size - 1] >>= genAllExpSizeOutFold)
