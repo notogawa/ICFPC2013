@@ -203,6 +203,7 @@ main = do
       Just size = prob ..: "size"
       Just ops = prob ..: "operators"
   setting size ops
+  rands <- replicateM 256 (getStdRandom random)
   let fibs = [0,1,2,3,5,8,13,21,34,55 :: Int]
       bits = [ 0
              , complement 0
@@ -224,16 +225,10 @@ main = do
              map (2^) [0..63 :: Int] ++
              map ((1+).(2^)) [1..63 :: Int] ++
              map ((2^(63 :: Int)+).(2^)) [0..62 :: Int]
-      is0 = take 256 $ nub $ bits
-  evalres0 <- postEval pid is0
-  let Just os0' = evalres0 ..: "outputs"
-      os0 = map read os0'
-  is1 <- replicateM 256 (getStdRandom random)
-  evalres1 <- postEval pid is1
-  let Just os1' = evalres1 ..: "outputs"
-      os1 = map read os1'
-  let is = is0 ++ is1
-      os = os0 ++ os1
+      is = take 256 $ nub $ bits ++ rands
+  evalres <- postEval pid is
+  let Just os' = evalres ..: "outputs"
+      os = map read os'
   tryInferProgram pid ops is os
 
 timeout :: IO (Maybe a)
