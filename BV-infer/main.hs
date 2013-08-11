@@ -7,7 +7,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.Bits
 import Data.Function ( on )
-import Data.List ( nub, sortBy )
+import Data.List ( nub, sortBy, sort )
 import Data.Word
 import Data.IORef
 import Data.Text ( Text )
@@ -25,6 +25,7 @@ import System.Random
 import System.Exit
 import System.Time ( getClockTime )
 import System.Posix.Process ( exitImmediately )
+import Debug.Trace
 
 data Problem =
     Problem { problemSize :: Int
@@ -34,10 +35,11 @@ data Problem =
             , problemHasFold :: Bool
             , problemHasTFold :: Bool
             , problemHasIf0 :: Bool
+            , problemHasBonus :: Bool
             }
 
 problem :: IORef Problem
-problem = unsafePerformIO (newIORef $ Problem 0 [] [] [] False False False)
+problem = unsafePerformIO (newIORef $ Problem 0 [] [] [] False False False False)
 
 setting :: Int -> [String] -> IO ()
 setting size ops = writeIORef problem $
@@ -48,6 +50,7 @@ setting size ops = writeIORef problem $
                            , problemHasFold = elem "fold" ops
                            , problemHasTFold = elem "tfold" ops
                            , problemHasIf0 = elem "if0" ops
+                           , problemHasBonus = elem "bonus" ops
                            }
 
 unsafeGetProblem :: Problem
@@ -269,7 +272,10 @@ inferProgram pid _ops is os = do
   (_, manswer) <- mapM async (timeout :
                               findSmallProgramWithoutFold is os :
                               findProgramWithoutFold' is os :
-                              map (findProgramWithoutFold is os) [max(size-4)1..size-1]) >>= waitAnyCancel
+                              map (findProgramWithoutFold is os) [ n
+                                                                 | n <- [max(size-4)1..size-1]
+                                                                 , not $ problemHasBonus unsafeGetProblem
+                                                                 ] ) >>= waitAnyCancel
   case manswer of
     Just answer -> do
       print answer
@@ -416,12 +422,19 @@ genAllSmallProgramWithFold = Program (Id 0) <$> gen
                     ([1..size - 1] >>= genAllExpSizeWithFold)
 
 genAllProgramWithoutFold :: Int -> [Program WithoutFold]
-genAllProgramWithoutFold n = Program (Id 0) <$> genAllExpSizeOutFold n
+genAllProgramWithoutFold n = Program (Id 0) <$> gen
+    where
+      gen = if problemHasBonus unsafeGetProblem
+               then genAllExpSizeBonus n
+               else genAllExpSizeOutFold n
 
 genAllSmallProgramWithoutFold :: [Program WithoutFold]
-genAllSmallProgramWithoutFold = Program (Id 0) <$> ([1..size - 1] >>= genAllExpSizeOutFold)
+genAllSmallProgramWithoutFold = Program (Id 0) <$> gen
     where
       size = problemSize unsafeGetProblem
+      gen = if problemHasBonus unsafeGetProblem
+               then genAllExpSizeBonus (size - 1)
+               else ([1..size - 1] >>= genAllExpSizeOutFold)
 
 genAllExpSizeWithFold :: Int -> [Exp OutFold WithFold]
 genAllExpSizeWithFold n = concat candidates
@@ -596,6 +609,24 @@ genAllExpSizeOutFold n = concat candidates
                               , n1 <- [1..n-n0]
                               , let n2=n-1-n0-n1, 0 < n2
                               ]
+              , e0 <- genAllExpSizeOutFold n0
+              , e0 /= ExpZero -- if0 0 は意味無い
+              , e0 /= ExpOne -- if0 1 は意味無い
+              , e1 <- genAllExpSizeOutFold n1
+              , e2 <- genAllExpSizeOutFold n2
+              ]
+
+genAllExpSizeBonus :: Int -> [Exp OutFold WithoutFold]
+genAllExpSizeBonus n = concat candidates
+    where
+      candidates = [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
+      cost4 = [ ExpIf0 e0 e1 e2
+              | (_, (n0,n1,n2)) <- sort [ (maximum $ map abs [n0-n1,n1-n2,n2-n0],(n0, n1, n2))
+                                        | n0 <- [1..n]
+                                        , n1 <- [1..n-n0]
+                                        , let n2=n-1-n0-n1, 0 < n2
+                                        ]
+              , trace(show(n0,n1,n2))True
               , e0 <- genAllExpSizeOutFold n0
               , e0 /= ExpZero -- if0 0 は意味無い
               , e0 /= ExpOne -- if0 1 は意味無い
