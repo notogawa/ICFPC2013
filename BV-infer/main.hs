@@ -299,18 +299,19 @@ instance Arbitrary (Program WithoutFold) where
     arbitrary = Program (Id 0) <$> arbitrary
 
 genExpSizeInFold :: Bool -> Int -> Gen (Exp InFold WithoutFold)
-genExpSizeInFold shadowing n = oneof candidates
+genExpSizeInFold shadowing n = frequency candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
       candidates = cost1 ++
-                   [ cost2 | n > 1, not $ null uops ] ++
-                   [ cost3 | n > 2, not $ null bops ] ++
-                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
-      cost1 = [ return ExpZero
-              , return ExpOne
-              , ExpId . Id <$> oneof (map return (if shadowing then [0..1] else [1..2]))
-              ]
+                   [ (2, cost2) | n > 1, not $ null uops ] ++
+                   [ (4, cost3) | n > 2, not $ null bops ] ++
+                   [ (8, cost4) | n > 3, problemHasIf0 unsafeGetProblem ]
+      cost1 = map ((,) 1 . return) $
+              [ ExpZero
+              , ExpOne
+              ] ++
+              map (ExpId . Id) (if shadowing then [0..1] else [1..2])
       cost2 = ExpUOp <$> (oneof $ map return uops) <*> genExpSizeInFold shadowing (n-1)
       cost3 = do
         op <- oneof $ map return bops
@@ -324,17 +325,18 @@ genExpSizeInFold shadowing n = oneof candidates
         return $ ExpIf0 e0 e1 e2
 
 genExpSizeOutFold :: Int -> Gen (Exp OutFold WithoutFold)
-genExpSizeOutFold n = oneof candidates
+genExpSizeOutFold n = frequency candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
       candidates = cost1 ++
-                   [ cost2 | n > 1, not $ null uops ] ++
-                   [ cost3 | n > 2, not $ null bops ] ++
-                   [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
-      cost1 = [ return ExpZero
-              , return ExpOne
-              , return $ ExpId (Id 0)
+                   [ (2, cost2) | n > 1, not $ null uops ] ++
+                   [ (4, cost3) | n > 2, not $ null bops ] ++
+                   [ (8, cost4) | n > 3, problemHasIf0 unsafeGetProblem ]
+      cost1 = map ((,) 1 . return) $
+              [ ExpZero
+              , ExpOne
+              , ExpId (Id 0)
               ]
       cost2 = ExpUOp <$> (oneof $ map return uops) <*> genExpSizeOutFold (n-1)
       cost3 = do
@@ -349,14 +351,14 @@ genExpSizeOutFold n = oneof candidates
         return $ ExpIf0 e0 e1 e2
 
 genExpSizeWithFold :: Int -> Gen (Exp OutFold WithFold)
-genExpSizeWithFold n = oneof $ concat candidates
+genExpSizeWithFold n = frequency $ concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
-      candidates = [ cost2 | n > 6, not $ null uops ] ++
-                   [ cost3 | n > 7, not $ null bops ] ++
-                   [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
-                   [ cost5 | n > 4 ]
+      candidates = [ map ((,) 2) cost2 | n > 6, not $ null uops ] ++
+                   [ map ((,) 4) cost3 | n > 7, not $ null bops ] ++
+                   [ map ((,) 8) cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
+                   [ map ((,) 16) cost5 | n > 4 ]
       cost2 = [ ExpUOp <$> (oneof $ map return uops) <*> genExpSizeWithFold (n-1) ]
       cost3 = [ do op <- oneof $ map return bops
                    e0 <- genExpSizeWithFold (n-2)
