@@ -531,7 +531,7 @@ genAllExpSizeInFold shadowing n = concat candidates
       candidates = [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ] ++
                    [ cost3 | n > 2, not $ null bops ] ++
                    [ cost2 | n > 1, not $ null uops ] ++
-                   [ cost1 ]
+                   [ cost1 | n == 1 ]
       cost1 = [ ExpZero
               , ExpOne
               ] ++ map (ExpId . Id) (if shadowing then [0..1] else [1..2])
@@ -579,7 +579,7 @@ genAllExpSizeOutFold n = concat candidates
       candidates = [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ] ++
                    [ cost3 | n > 2, not $ null bops ] ++
                    [ cost2 | n > 1, not $ null uops ] ++
-                   [ cost1 ]
+                   [ cost1 | n == 1 ]
       cost1 = [ ExpZero
               , ExpOne
               , ExpId (Id 0)
