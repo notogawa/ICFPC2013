@@ -465,6 +465,8 @@ genAllExpSizeWithFold'' n = concat candidates
               | e0 <- genAllExpSizeWithFold (n-1)
               , op <- uops
               , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
+              , null [ True | op == UnaryOpShr16, ExpUOp op' _ <- [e0], op' `elem` [UnaryOpShr4, UnaryOpShr1] ] -- shr16 と shr4/shr1が並ぶなら小さい順
+              , null [ True | op == UnaryOpShr4, ExpUOp op' _ <- [e0], op' == UnaryOpShr1 ] -- shr4 と shr1が並ぶなら小さい順
               ]
       cost3 = [ ExpBOp op e0 e1
               | (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1, n0 <= n1 ]
@@ -538,6 +540,8 @@ genAllExpSizeInFold shadowing n = concat candidates
               , op <- uops
               , op == UnaryOpNot || e0 /= ExpZero -- not 以外はshiftなので0には意味無い
               , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
+              , null [ True | op == UnaryOpShr16, ExpUOp op' _ <- [e0], op' `elem` [UnaryOpShr4, UnaryOpShr1] ] -- shr16 と shr4/shr1が並ぶなら小さい順
+              , null [ True | op == UnaryOpShr4, ExpUOp op' _ <- [e0], op' == UnaryOpShr1 ] -- shr4 と shr1が並ぶなら小さい順
               ]
       cost3 = [ ExpBOp op e0 e1
               | (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1, n0 <= n1 ]
@@ -585,6 +589,8 @@ genAllExpSizeOutFold n = concat candidates
               , op <- uops
               , op == UnaryOpNot || e0 /= ExpZero -- not 以外はshiftなので0には意味無い
               , null [ True | op == UnaryOpNot, ExpUOp op' _ <- [e0], op' == UnaryOpNot ] -- not . not はidなので意味無い
+              , null [ True | op == UnaryOpShr16, ExpUOp op' _ <- [e0], op' `elem` [UnaryOpShr4, UnaryOpShr1] ] -- shr16 と shr4/shr1が並ぶなら小さい順
+              , null [ True | op == UnaryOpShr4, ExpUOp op' _ <- [e0], op' == UnaryOpShr1 ] -- shr4 と shr1が並ぶなら小さい順
               ]
       cost3 = [ ExpBOp op e0 e1
               | (n0,n1) <- [ (n0, n1) | n0 <- [1..n], let n1 = n-1-n0, 0 < n1, n0 <= n1 ]
