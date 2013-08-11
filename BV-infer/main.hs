@@ -475,6 +475,7 @@ genAllExpSizeWithFold n = concat candidates
               , e0 <- genAllExpSizeWithFold n0
               , e1 <- genAllExpSizeOutFold n1
               , e2 <- genAllExpSizeOutFold n2
+              , e1 /= e2 -- e1 == e2 なら分岐の意味無い
               ] ++
               [ ExpIf0 e0 e1 e2
               | (n0,n1,n2) <- [ (n0, n1, n2)
@@ -573,6 +574,7 @@ genAllExpSizeInFold shadowing n = concat candidates
               , e0 /= ExpOne -- if0 1 は意味無い
               , e1 <- genAllExpSizeInFold shadowing n1
               , e2 <- genAllExpSizeInFold shadowing n2
+              , e1 /= e2 -- e1 == e2 なら分岐の意味無い
               ]
 
 genAllExpSizeOutFold :: Int -> [Exp OutFold WithoutFold]
@@ -616,6 +618,7 @@ genAllExpSizeOutFold n = concat candidates
               , e0 /= ExpOne -- if0 1 は意味無い
               , e1 <- genAllExpSizeOutFold n1
               , e2 <- genAllExpSizeOutFold n2
+              , e1 /= e2 -- e1 == e2 なら分岐の意味無い
               ]
 
 genAllExpSizeBonus :: Int -> [Exp OutFold WithoutFold]
@@ -634,4 +637,5 @@ genAllExpSizeBonus n = concat candidates
               , e0 /= ExpOne -- if0 1 は意味無い
               , e1 <- genAllExpSizeOutFold n1
               , e2 <- genAllExpSizeOutFold n2
+              , e1 /= e2 -- e1 == e2 なら分岐の意味無い
               ]
