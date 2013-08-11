@@ -7,7 +7,7 @@ import Data.Aeson
 import Data.Aeson.Types
 import Data.Bits
 import Data.Function ( on )
-import Data.List ( nub, sortBy, sort )
+import Data.List ( nub, sortBy )
 import Data.Word
 import Data.IORef
 import Data.Text ( Text )
@@ -56,13 +56,6 @@ setting size ops = writeIORef problem $
 unsafeGetProblem :: Problem
 unsafeGetProblem = unsafePerformIO $ readIORef problem
 
-findProgramWithFoldFrom :: [Word64] -> [Word64] -> Int -> IO (Maybe (Program WithFold))
-findProgramWithFoldFrom is os n = do
-  let ps = genAllProgramWithFold n
-  case filter (\p -> verify p is os) ps of
-    p : _ -> return $ Just p
-    [] -> findProgramWithFoldFrom is os (n+1)
-
 findSmallProgramWithFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithFold))
 findSmallProgramWithFold is os = do
   let ps = genAllSmallProgramWithFold
@@ -98,16 +91,11 @@ toBOp _ = Nothing
 toBOps :: [String] -> [BinaryOp]
 toBOps ops = [ op | Just op <- map toBOp ops ]
 
-findProgramWithoutFoldFrom :: [Word64] -> [Word64] -> Int -> IO (Maybe (Program WithoutFold))
-findProgramWithoutFoldFrom is os n = do
-  let ps = genAllProgramWithoutFold n
-  case filter (\p -> verify p is os) ps of
-    p : _ -> return $ Just p
-    [] -> findProgramWithoutFoldFrom is os (n+1)
-
 findSmallProgramWithoutFold :: [Word64] -> [Word64] -> IO (Maybe (Program WithoutFold))
 findSmallProgramWithoutFold is os = do
-  let ps = genAllSmallProgramWithoutFold
+  let ps = if problemHasBonus unsafeGetProblem
+             then genBonusProgramWithoutFold is os
+             else genAllSmallProgramWithoutFold
   case filter (\p -> verify p is os) ps of
     p : _ -> return $ Just p
     [] -> findProgramWithoutFold' is os
@@ -148,8 +136,6 @@ postMyProblems = do
     case decode' lbs of
       Just resJsons -> return [ resJson
                               | resJson <- resJsons
-                              , let Just operators = resJson ..: "operators"
-                              , ("bonus" :: String) `notElem` operators -- とりあえず無視
                               , let solved = resJson ..: "solved"
                               , Just True /= solved
                               , let timeLeft = resJson ..: "timeLeft"
@@ -230,7 +216,19 @@ main = do
   evalres <- postEval pid is
   let Just os' = evalres ..: "outputs"
       os = map read os'
-  tryInferProgram pid ops is os
+  irands <- replicateM 256 (getStdRandom random)
+  randres <- postEval pid irands
+  let Just sorands = randres ..: "outputs"
+      orands = map read sorands
+  irands' <- replicateM 256 (getStdRandom random)
+  randres' <- postEval pid irands'
+  let Just sorands' = randres' ..: "outputs"
+      orands' = map read sorands'
+  irands'' <- replicateM 256 (getStdRandom random)
+  randres'' <- postEval pid irands''
+  let Just sorands'' = randres'' ..: "outputs"
+      orands'' = map read sorands''
+  tryInferProgram pid ops (is ++ irands ++ irands' ++ irands'') (os ++ orands ++ orands' ++ orands'')
 
 timeout :: IO (Maybe a)
 timeout = do
@@ -282,6 +280,11 @@ inferProgram pid _ops is os = do
 
 verify :: AtMostOneOccurrenceOfFold fold => Program fold -> [Word64] -> [Word64] -> Bool
 verify prog is os = and [ p i == o | (i, o) <- zip is os]
+    where
+      p = evalProgram prog
+
+verifyUnmatchs :: AtMostOneOccurrenceOfFold fold => Program fold -> [Word64] -> [Word64] -> ([Word64], [Word64])
+verifyUnmatchs prog is os = unzip [ (i, o) | (i, o) <- zip is os, p i /= o]
     where
       p = evalProgram prog
 
@@ -402,13 +405,6 @@ instance Arbitrary (Exp OutFold WithoutFold) where
         where
           size = problemSize unsafeGetProblem
 
-genAllProgramWithFold :: Int -> [Program WithFold]
-genAllProgramWithFold n = Program (Id 0) <$> gen
-    where
-      gen = if problemHasTFold unsafeGetProblem
-               then genAllExpSizeWithTFold n
-               else genAllExpSizeWithFold n
-
 genAllSmallProgramWithFold :: [Program WithFold]
 genAllSmallProgramWithFold = Program (Id 0) <$> ([1..size - 1] >>= gen)
     where
@@ -417,20 +413,26 @@ genAllSmallProgramWithFold = Program (Id 0) <$> ([1..size - 1] >>= gen)
                then genAllExpSizeWithTFold
                else genAllExpSizeWithFold
 
-genAllProgramWithoutFold :: Int -> [Program WithoutFold]
-genAllProgramWithoutFold n = Program (Id 0) <$> gen n
-    where
-      gen = if problemHasBonus unsafeGetProblem
-               then genAllExpSizeBonus
-               else genAllExpSizeOutFold
-
 genAllSmallProgramWithoutFold :: [Program WithoutFold]
 genAllSmallProgramWithoutFold = Program (Id 0) <$> gen
     where
       size = problemSize unsafeGetProblem
-      gen = if problemHasBonus unsafeGetProblem
-               then genAllExpSizeBonus (size - 1)
-               else [1..size - 1] >>= genAllExpSizeOutFold
+      gen = [1..size - 1] >>= genAllExpSizeOutFold
+
+genBonusProgramWithoutFold :: [Word64] -> [Word64] -> [Program WithoutFold]
+genBonusProgramWithoutFold is os = gen
+    where
+      size = problemSize unsafeGetProblem
+      gen = [ Program (Id 0) e
+            | e1 <- [1..size-1] >>= genAllExpSizeOutFold
+            , let (is', os') = verifyUnmatchs (Program (Id 0) e1) is os
+            , 2 * length is' <= length is -- 半分以上マッチしたら
+            , trace (show (Program (Id 0) e1)) True
+            , e2 <- [max(sizeOfExp e1-5)1..min(sizeOfExp e1+5)15] >>= genAllExpSizeOutFold
+            , verify (Program (Id 0) e2) is' os'
+            , trace (show (Program (Id 0) e1, Program (Id 0) e2)) True
+            , e <- [5..size-1] >>= genAllExpSizeBonus e1 e2
+            ]
 
 genAllExpSizeWithFold :: Int -> [Exp OutFold WithFold]
 genAllExpSizeWithFold n = genAllExpSizeWithFold' n ++ genAllExpSizeWithFold'' n
@@ -609,21 +611,11 @@ genAllExpSizeOutFold n = concat candidates
               , e1 /= e2 -- e1 == e2 なら分岐の意味無い
               ]
 
-genAllExpSizeBonus :: Int -> [Exp OutFold WithoutFold]
-genAllExpSizeBonus n = concat candidates
+genAllExpSizeBonus :: Exp OutFold WithoutFold -> Exp OutFold WithoutFold -> Int -> [Exp OutFold WithoutFold]
+genAllExpSizeBonus e1 e2 n = concat candidates
     where
       candidates = [ cost4 | n > 3, problemHasIf0 unsafeGetProblem ]
-      cost4 = [ ExpIf0 e0 e1 e2
-              | (_, (n0,n1,n2)) <- sort [ (maximum $ map abs [n0-n1,n1-n2,n2-n0],(n0, n1, n2))
-                                        | n0 <- [1..n]
-                                        , n1 <- [1..n-n0]
-                                        , let n2=n-1-n0-n1, 0 < n2
-                                        ]
-              , trace(show(n0,n1,n2))True
-              , e0 <- genAllExpSizeOutFold n0
-              , e0 /= ExpZero -- if0 0 は意味無い
-              , e0 /= ExpOne -- if0 1 は意味無い
-              , e1 <- genAllExpSizeOutFold n1
-              , e2 <- genAllExpSizeOutFold n2
-              , e1 /= e2 -- e1 == e2 なら分岐の意味無い
-              ]
+      cost4 = concat $ do
+        n0 <- [1..n-1-sizeOfExp e1-sizeOfExp e2]
+        e0 <- genAllExpSizeOutFold n0
+        return [ ExpIf0 e0 e1 e2, ExpIf0 e0 e2 e1 ]
