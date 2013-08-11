@@ -412,7 +412,7 @@ genAllProgramWithFold n = Program (Id 0) <$> gen
     where
       gen = if problemHasTFold unsafeGetProblem
                then genAllExpSizeWithTFold n
-               else genAllExpSizeWithFold' n ++ genAllExpSizeWithFold n
+               else genAllExpSizeWithFold n
 
 genAllSmallProgramWithFold :: [Program WithFold]
 genAllSmallProgramWithFold = Program (Id 0) <$> gen
@@ -421,7 +421,7 @@ genAllSmallProgramWithFold = Program (Id 0) <$> gen
       gen = if problemHasTFold unsafeGetProblem
                then [1..size - 1] >>= genAllExpSizeWithTFold
                else ([1..size - 1] >>= genAllExpSizeWithFold') ++
-                    ([1..size - 1] >>= genAllExpSizeWithFold)
+                    ([1..size - 1] >>= genAllExpSizeWithFold'')
 
 genAllProgramWithoutFold :: Int -> [Program WithoutFold]
 genAllProgramWithoutFold n = Program (Id 0) <$> gen
@@ -439,14 +439,32 @@ genAllSmallProgramWithoutFold = Program (Id 0) <$> gen
                else ([1..size - 1] >>= genAllExpSizeOutFold)
 
 genAllExpSizeWithFold :: Int -> [Exp OutFold WithFold]
-genAllExpSizeWithFold n = concat candidates
+genAllExpSizeWithFold n = genAllExpSizeWithFold' n ++ genAllExpSizeWithFold'' n
+
+-- 先頭がfold
+genAllExpSizeWithFold' :: Int -> [Exp OutFold WithFold]
+genAllExpSizeWithFold' n = concat [ cost5 | n > 4 ]
+    where
+      cost5 = do
+        (n0,n1,n2) <- [ (n0, n1, n2)
+                      | n0 <- [1..n]
+                      , n1 <- [1..n-n0]
+                      , let n2=n-2-n0-n1, 0 < n2
+                      ]
+        e0 <- genAllExpSizeOutFold n0
+        e1 <- genAllExpSizeOutFold n1
+        e2 <- genAllExpSizeInFold False n2
+        return $ ExpFold e0 e1 (Id 1) (Id 2) e2
+
+-- 先頭がfold以外
+genAllExpSizeWithFold'' :: Int -> [Exp OutFold WithFold]
+genAllExpSizeWithFold'' n = concat candidates
     where
       uops = problemUnaryOps unsafeGetProblem
       bops = problemBinaryOps unsafeGetProblem
       candidates = [ cost4 | n > 8, problemHasIf0 unsafeGetProblem ] ++
                    [ cost3 | n > 7, not $ null bops ] ++
-                   [ cost2 | n > 6, not $ null uops ] ++
-                   [ cost5 | n > 4 ]
+                   [ cost2 | n > 6, not $ null uops ]
       cost2 = [ ExpUOp op e0
               | e0 <- genAllExpSizeWithFold (n-1)
               , op <- uops
@@ -501,30 +519,6 @@ genAllExpSizeWithFold n = concat candidates
               , e0 /= ExpZero -- if0 0 は意味無い
               , e0 /= ExpOne -- if0 1 は意味無い
               ]
-      cost5 = do
-        (n0,n1,n2) <- [ (n0, n1, n2)
-                      | n0 <- [1..n]
-                      , n1 <- [1..n-n0]
-                      , let n2=n-2-n0-n1, 0 < n2
-                      ]
-        e0 <- genAllExpSizeOutFold n0
-        e1 <- genAllExpSizeOutFold n1
-        e2 <- genAllExpSizeInFold False n2
-        return $ ExpFold e0 e1 (Id 1) (Id 2) e2
-
-genAllExpSizeWithFold' :: Int -> [Exp OutFold WithFold]
-genAllExpSizeWithFold' n = concat [ cost5 | n > 4 ]
-    where
-      cost5 = do
-        (n0,n1,n2) <- [ (n0, n1, n2)
-                      | n0 <- [1..n]
-                      , n1 <- [1..n-n0]
-                      , let n2=n-2-n0-n1, 0 < n2
-                      ]
-        e0 <- genAllExpSizeOutFold n0
-        e1 <- genAllExpSizeOutFold n1
-        e2 <- genAllExpSizeInFold False n2
-        return $ ExpFold e0 e1 (Id 1) (Id 2) e2
 
 genAllExpSizeWithTFold :: Int -> [Exp OutFold WithFold]
 genAllExpSizeWithTFold n = do
